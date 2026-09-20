@@ -14,6 +14,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 from cs336_basics.nn_utils import softmax
+from cs336_basics.profiling import nvtx_range
 
 logger = logging.getLogger(__name__)
 
@@ -423,15 +424,18 @@ def scaled_dot_product_attention(
         implementation with the provided key, query, and value tensors.
     """
 
-    d_k = K.shape[-1]
-    attention_scores = einsum(Q, K, "... query d_k, ... key d_k -> ... query key") / math.sqrt(d_k)
+    with nvtx_range("attention/qk"):
+        d_k = K.shape[-1]
+        attention_scores = einsum(Q, K, "... query d_k, ... key d_k -> ... query key") / math.sqrt(d_k)
 
-    if mask is not None:
-        attention_scores = torch.where(mask, attention_scores, float("-inf"))
+    with nvtx_range("attention/softmax"):
+        if mask is not None:
+            attention_scores = torch.where(mask, attention_scores, float("-inf"))
 
-    attention_weights = softmax(attention_scores, dim=-1)  # Softmax over the key dimension
+        attention_weights = softmax(attention_scores, dim=-1)  # Softmax over the key dimension
 
-    return einsum(attention_weights, V, "... query key, ... key d_v ->  ... query d_v")
+    with nvtx_range("attention/pv"):
+        return einsum(attention_weights, V, "... query key, ... key d_v ->  ... query d_v")
 
 
 class CausalMultiHeadSelfAttention(nn.Module):
